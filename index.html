@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Gamesteek — учёт продаж</title>
-  <meta name="description" content="База покупателей, игр, продаж и прибыли магазина дисков с играми">
+  <meta name="description" content="База покупателей, игр, продаж и прибыли магазина дисков и флешек с играми">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
   <link rel="stylesheet" href="styles.css">
   <script src="firebase-config.js"></script>
@@ -23,7 +23,7 @@
       <button data-view="dashboard" class="active">Главная</button>
       <button data-view="sales">Продажи</button>
       <button data-view="customers">Покупатели</button>
-      <button data-view="games">Игры</button>
+      <button data-view="games">Товары</button>
       <button data-view="expenses">Расходы</button>
       <button data-view="settings">Данные</button>
     </nav>
@@ -94,12 +94,13 @@
     <!-- ИГРЫ -->
     <section class="view" id="view-games">
       <div class="view-head">
-        <h1>Игры / склад</h1>
+        <h1>Товары / склад</h1>
         <div class="actions">
-          <input type="search" id="games-search" placeholder="Название игры">
+          <input type="search" id="games-search" placeholder="Название или игра на флешке">
+          <select id="games-type"><option value="">Диски и флешки</option><option value="disc">💿 Диски</option><option value="usb">🔌 Флешки</option></select>
           <select id="games-platform"><option value="">Все платформы</option></select>
           <button class="btn" data-export="games">CSV</button>
-          <button class="btn primary" data-action="new-game">+ Игра</button>
+          <button class="btn primary" data-action="new-game">+ Товар</button>
         </div>
       </div>
       <div class="card table-wrap"><table id="games-table"></table></div>

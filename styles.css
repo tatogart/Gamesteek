@@ -181,3 +181,4 @@ body.locked main, body.locked .topbar, body.gated main, body.gated .topbar { vis
 .sync.ok { color: var(--good); }
 .sync.saving, .sync.offline { color: var(--warn); }
 .sync.error { color: var(--bad); }
+td .sub { font-size: 13px; margin-top: 2px; }

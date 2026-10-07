@@ -38,6 +38,9 @@ const byId = (list, id) => list.find(x => x.id === id);
 
 const PLATFORMS = ['PS5', 'PS4', 'PS3', 'Xbox Series', 'Xbox One', 'Xbox 360', 'Switch', 'PC', 'Другое'];
 const CONDITIONS = { new: 'Новый', used: 'Б/у' };
+const TYPES = { disc: 'Диск', usb: 'Флешка' };
+const TYPE_ICONS = { disc: '💿', usb: '🔌' };
+const typeOf = g => g.type || 'disc'; // старые записи без типа — диски
 const STATUSES = { paid: 'Оплачено', pending: 'Ожидает оплаты', cancelled: 'Отменено' };
 const PAYMENTS = { cash: 'Наличные', card: 'Карта', transfer: 'Перевод', other: 'Другое' };
 const EXPENSE_CATS = ['Доставка', 'Реклама', 'Упаковка', 'Аренда', 'Комиссия площадки', 'Прочее'];
@@ -85,9 +88,12 @@ const fmtDate = d => d ? d.split('-').reverse().join('.') : '—';
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const signCls = n => n > 0 ? 'pos' : n < 0 ? 'neg' : '';
 const customerName = id => byId(db.customers, id)?.name || 'Без покупателя';
-const gameTitle = id => {
+// plain — без значка, для CSV
+const gameTitle = (id, plain = false) => {
   const g = byId(db.games, id);
-  return g ? `${g.title} (${g.platform})` : 'Удалённая игра';
+  if (!g) return 'Удалённый товар';
+  const extra = typeOf(g) === 'usb' && g.capacity ? `, ${g.capacity} ГБ` : '';
+  return `${plain ? '' : TYPE_ICONS[typeOf(g)] + ' '}${g.title} (${g.platform}${extra})`;
 };
 
 function toast(msg) {
@@ -135,7 +141,7 @@ function renderDashboard() {
   const gross = sales.reduce((a, s) => a + saleProfit(s), 0);
   const exp = expenses.reduce((a, e) => a + e.amount, 0);
   const net = gross - exp;
-  const discs = sales.reduce((a, s) => a + s.qty, 0);
+  const soldOfType = t => sales.filter(s => typeOf(byId(db.games, s.gameId) || {}) === t).reduce((a, s) => a + s.qty, 0);
   const buyers = new Set(sales.map(s => s.customerId).filter(Boolean)).size;
   const debt = db.sales.filter(s => s.status === 'pending' && inRange(s.date, range)).reduce((a, s) => a + saleRevenue(s), 0);
   const stockValue = db.games.reduce((a, g) => a + Math.max(0, stockOf(g)) * g.cost, 0);
@@ -144,7 +150,8 @@ function renderDashboard() {
     ['Выручка', money(revenue)],
     ['Чистая прибыль', money(net), net >= 0 ? 'good' : 'bad'],
     ['Расходы', money(exp)],
-    ['Продано дисков', discs],
+    ['Продано дисков', soldOfType('disc')],
+    ['Продано флешек', soldOfType('usb')],
     ['Средний чек', money(sales.length ? revenue / sales.length : 0)],
     ['Покупателей', buyers],
     ['Ждём оплату', money(debt)],
@@ -190,7 +197,7 @@ function renderDashboard() {
   const low = db.games.map(g => ({ g, st: stockOf(g) })).filter(x => x.st <= 1).sort((a, b) => a.st - b.st).slice(0, 8);
   document.getElementById('low-stock').innerHTML = low.length
     ? '<ul class="list">' + low.map(({ g, st }) =>
-        `<li><span>${esc(g.title)}<div class="sub">${esc(g.platform)} · ${CONDITIONS[g.condition]}</div></span><b class="${st <= 0 ? 'neg' : ''}">${st} шт</b></li>`).join('') + '</ul>'
+        `<li><span>${TYPE_ICONS[typeOf(g)]} ${esc(g.title)}<div class="sub">${TYPES[typeOf(g)]} · ${esc(g.platform)} · ${CONDITIONS[g.condition]}</div></span><b class="${st <= 0 ? 'neg' : ''}">${st} шт</b></li>`).join('') + '</ul>'
     : '<div class="empty">Со складом всё в порядке</div>';
 }
 
@@ -292,22 +299,25 @@ function renderCustomers() {
 
 function renderGames() {
   const q = document.getElementById('games-search').value.trim().toLowerCase();
+  const tf = document.getElementById('games-type').value;
   const pf = document.getElementById('games-platform');
   const platforms = [...new Set(db.games.map(g => g.platform))].sort();
   const cur = pf.value;
   pf.innerHTML = '<option value="">Все платформы</option>' + platforms.map(p => `<option ${p === cur ? 'selected' : ''}>${esc(p)}</option>`).join('');
 
   const list = db.games
+    .filter(g => !tf || typeOf(g) === tf)
     .filter(g => !pf.value || g.platform === pf.value)
-    .filter(g => !q || g.title.toLowerCase().includes(q))
+    .filter(g => !q || (g.title + ' ' + (g.contents || '')).toLowerCase().includes(q))
     .sort((a, b) => a.title.localeCompare(b.title));
 
   table(document.getElementById('games-table'),
-    [{ t: 'Игра' }, { t: 'Платформа' }, { t: 'Состояние' }, { t: 'Закупка', num: 1 }, { t: 'Цена продажи', num: 1 }, { t: 'Наценка', num: 1 }, { t: 'Остаток', num: 1 }, { t: 'Продано', num: 1 }, { t: '' }],
+    [{ t: 'Товар' }, { t: 'Тип' }, { t: 'Платформа' }, { t: 'Состояние' }, { t: 'Закупка', num: 1 }, { t: 'Цена продажи', num: 1 }, { t: 'Наценка', num: 1 }, { t: 'Остаток', num: 1 }, { t: 'Продано', num: 1 }, { t: '' }],
     list.map(g => {
       const st = stockOf(g), margin = g.price - g.cost;
       return `<tr>
-        <td><b>${esc(g.title)}</b></td>
+        <td class="wrap"><b>${esc(g.title)}</b>${g.contents ? `<div class="sub muted">${esc(g.contents)}</div>` : ''}</td>
+        <td>${TYPE_ICONS[typeOf(g)]} ${TYPES[typeOf(g)]}${typeOf(g) === 'usb' && g.capacity ? ` · ${g.capacity} ГБ` : ''}</td>
         <td>${esc(g.platform)}</td>
         <td>${CONDITIONS[g.condition]}</td>
         <td class="num">${money(g.cost)}</td>
@@ -318,7 +328,7 @@ function renderGames() {
         ${rowActions('game', g.id)}
       </tr>`;
     }),
-    db.games.length ? 'Ничего не найдено' : 'Добавьте первую игру');
+    db.games.length ? 'Ничего не найдено' : 'Добавьте первый диск или флешку');
 }
 
 function renderExpenses() {
@@ -385,8 +395,14 @@ function gameForm(g = {}) {
   const sold = g.id ? soldQty(g.id) : 0;
   const stock = g.id ? stockOf(g) : 1;
   const pl = g.platform || 'PS5';
-  openModal(g.id ? 'Игра' : 'Новая игра', `
-    ${field('Название *', `<input name="title" required value="${esc(g.title)}" placeholder="Например, Elden Ring">`)}
+  const type = typeOf(g);
+  openModal(g.id ? 'Товар' : 'Новый товар', `
+    ${field('Тип товара', `<select name="type" id="f-type">${opts(Object.fromEntries(Object.entries(TYPES).map(([k, v]) => [k, TYPE_ICONS[k] + ' ' + v])), type)}</select>`)}
+    ${field('Название *', `<input name="title" id="f-title" required value="${esc(g.title)}">`)}
+    <div id="f-usb">
+      ${field('Объём флешки, ГБ', `<input name="capacity" type="number" min="0" step="1" value="${g.capacity ?? ''}" placeholder="64">`)}
+      ${field('Какие игры записаны', `<textarea name="contents" rows="2" placeholder="GTA V, FIFA 23, Minecraft…">${esc(g.contents)}</textarea>`)}
+    </div>
     <div class="field-row">
       ${field('Платформа', `<input name="platform" list="platform-list" value="${esc(pl)}"><datalist id="platform-list">${PLATFORMS.map(p => `<option value="${p}">`).join('')}</datalist>`)}
       ${field('Состояние', `<select name="condition">${opts(CONDITIONS, g.condition || 'new')}</select>`)}
@@ -398,17 +414,28 @@ function gameForm(g = {}) {
     ${field('Остаток на складе, шт', `<input name="stock" type="number" min="0" step="1" value="${stock}">`)}
     ${sold ? `<p class="hint">Уже продано: ${sold} шт. Остаток уменьшается автоматически при продаже.</p>` : ''}
   `, d => {
-    const rec = { ...g, title: d.title.trim(), platform: d.platform.trim() || 'Другое', condition: d.condition, cost: num(d.cost), price: num(d.price), purchased: Math.max(0, Math.round(num(d.stock))) + sold };
+    const usb = d.type === 'usb';
+    const rec = { ...g, type: d.type, capacity: usb ? Math.round(num(d.capacity)) || '' : '', contents: usb ? d.contents.trim() : '',
+      title: d.title.trim(), platform: d.platform.trim() || 'Другое', condition: d.condition, cost: num(d.cost), price: num(d.price), purchased: Math.max(0, Math.round(num(d.stock))) + sold };
     if (!rec.title) return false;
     upsert('games', rec);
     save();
-    toast('Игра сохранена');
+    toast('Товар сохранён');
   });
+
+  const typeSel = document.getElementById('f-type');
+  const syncType = () => {
+    const usb = typeSel.value === 'usb';
+    document.getElementById('f-usb').hidden = !usb;
+    document.getElementById('f-title').placeholder = usb ? 'Например, Флешка 64 ГБ — сборка PS3' : 'Например, Elden Ring';
+  };
+  typeSel.addEventListener('change', syncType);
+  syncType();
 }
 
 function saleForm(s = {}) {
   if (!db.games.length) {
-    toast('Сначала добавьте игру на склад');
+    toast('Сначала добавьте диск или флешку на склад');
     switchView('games');
     gameForm();
     return;
@@ -419,8 +446,8 @@ function saleForm(s = {}) {
   const g0 = byId(db.games, gameId);
 
   openModal(s.id ? 'Продажа' : 'Новая продажа', `
-    ${field('Игра *', `<select name="gameId" id="f-game">${games.map(g =>
-      `<option value="${g.id}" ${g.id === gameId ? 'selected' : ''}>${esc(g.title)} · ${esc(g.platform)} · ${CONDITIONS[g.condition]} (ост. ${stockOf(g)})</option>`).join('')}</select>`)}
+    ${field('Товар *', `<select name="gameId" id="f-game">${games.map(g =>
+      `<option value="${g.id}" ${g.id === gameId ? 'selected' : ''}>${TYPE_ICONS[typeOf(g)]} ${esc(g.title)} · ${esc(g.platform)} · ${CONDITIONS[g.condition]} (ост. ${stockOf(g)})</option>`).join('')}</select>`)}
     ${field('Покупатель', `<select name="customerId" id="f-cust"><option value="">— без покупателя —</option><option value="__new">+ Новый покупатель…</option>${customers.map(c =>
       `<option value="${c.id}" ${c.id === s.customerId ? 'selected' : ''}>${esc(c.name)}${c.phone ? ' · ' + esc(c.phone) : ''}</option>`).join('')}</select>`)}
     <div class="field" id="f-newcust" hidden><label>Имя нового покупателя</label><input name="newCustomer" placeholder="Имя"><input name="newPhone" placeholder="Телефон или @ник" style="margin-top:6px"></div>
@@ -552,12 +579,12 @@ function toCsv(rows) {
 }
 
 const CSV = {
-  sales: () => [['Дата', 'Покупатель', 'Игра', 'Кол-во', 'Цена', 'Себестоимость', 'Сумма', 'Прибыль', 'Оплата', 'Статус', 'Комментарий'],
-    ...db.sales.map(s => [s.date, customerName(s.customerId), gameTitle(s.gameId), s.qty, s.price, s.cost, saleRevenue(s), saleProfit(s), PAYMENTS[s.payment], STATUSES[s.status], s.note])],
+  sales: () => [['Дата', 'Покупатель', 'Товар', 'Тип', 'Кол-во', 'Цена', 'Себестоимость', 'Сумма', 'Прибыль', 'Оплата', 'Статус', 'Комментарий'],
+    ...db.sales.map(s => [s.date, customerName(s.customerId), gameTitle(s.gameId, true), TYPES[typeOf(byId(db.games, s.gameId) || {})], s.qty, s.price, s.cost, saleRevenue(s), saleProfit(s), PAYMENTS[s.payment], STATUSES[s.status], s.note])],
   customers: () => [['Имя', 'Телефон', 'Контакт', 'Город', 'Покупок', 'Потратил', 'Заметка'],
     ...db.customers.map(c => { const st = customerStats(c.id); return [c.name, c.phone, c.contact, c.city, st.count, st.spent, c.note]; })],
-  games: () => [['Игра', 'Платформа', 'Состояние', 'Закупка', 'Цена', 'Остаток', 'Продано'],
-    ...db.games.map(g => [g.title, g.platform, CONDITIONS[g.condition], g.cost, g.price, stockOf(g), soldQty(g.id)])],
+  games: () => [['Товар', 'Тип', 'Объём, ГБ', 'Игры на флешке', 'Платформа', 'Состояние', 'Закупка', 'Цена', 'Остаток', 'Продано'],
+    ...db.games.map(g => [g.title, TYPES[typeOf(g)], g.capacity || '', g.contents || '', g.platform, CONDITIONS[g.condition], g.cost, g.price, stockOf(g), soldQty(g.id)])],
   expenses: () => [['Дата', 'Категория', 'Сумма', 'Комментарий'], ...db.expenses.map(e => [e.date, e.category, e.amount, e.note])],
 };
 
@@ -568,7 +595,11 @@ function seedDemo() {
     ['The Last of Us Part II', 'PS4', 'used', 900, 1700, 3], ['God of War Ragnarök', 'PS5', 'used', 2200, 3200, 2],
     ['The Legend of Zelda: Tears of the Kingdom', 'Switch', 'new', 4200, 5600, 3], ['Red Dead Redemption 2', 'Xbox One', 'used', 800, 1500, 5],
     ['GTA V', 'PS4', 'used', 700, 1300, 1], ['Mario Kart 8 Deluxe', 'Switch', 'new', 3600, 4700, 2],
-  ].map(([title, platform, condition, cost, price, stock]) => ({ id: uid(), createdAt: Date.now(), title, platform, condition, cost, price, purchased: stock }));
+  ].map(([title, platform, condition, cost, price, stock]) => ({ id: uid(), createdAt: Date.now(), type: 'disc', title, platform, condition, cost, price, purchased: stock }));
+  games.push(
+    { id: uid(), createdAt: Date.now(), type: 'usb', title: 'Флешка 64 ГБ — хиты PS3', capacity: 64, contents: 'GTA V, The Last of Us, Uncharted 3, Red Dead Redemption', platform: 'PS3', condition: 'new', cost: 600, price: 1500, purchased: 5 },
+    { id: uid(), createdAt: Date.now(), type: 'usb', title: 'Флешка 128 ГБ — игры для ПК', capacity: 128, contents: 'Minecraft, Terraria, Stardew Valley, Hollow Knight', platform: 'PC', condition: 'new', cost: 900, price: 1900, purchased: 3 },
+  );
   const customers = [
     ['Алексей Смирнов', '+7 900 111-22-33', '@alex_games', 'Москва'], ['Мария Иванова', '+7 911 222-33-44', '', 'Санкт-Петербург'],
     ['Дмитрий К.', '', '@dimak', 'Казань'], ['Игорь Петров', '+7 922 333-44-55', 'vk.com/igorp', 'Москва'], ['Анна', '', '@anna_ps', 'Новосибирск'],
@@ -623,7 +654,7 @@ document.addEventListener('click', e => {
   }
 });
 
-['sales-search', 'sales-status', 'customers-search', 'games-search', 'games-platform', 'period'].forEach(id =>
+['sales-search', 'sales-status', 'customers-search', 'games-search', 'games-type', 'games-platform', 'period'].forEach(id =>
   document.getElementById(id).addEventListener('input', render));
 
 document.getElementById('backup').addEventListener('click', () =>
