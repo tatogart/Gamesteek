@@ -18,7 +18,16 @@ function load() {
 function save() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }
   catch (e) { toast('Ошибка сохранения: ' + e.message); }
+  if (typeof Cloud !== 'undefined') Cloud.push();
   render();
+}
+
+// Обновить запись по id или добавить новую. Запись могли удалить с другого устройства,
+// пока была открыта форма, — тогда она просто добавится заново.
+function upsert(col, rec) {
+  const existing = rec.id && byId(db[col], rec.id);
+  if (existing) Object.assign(existing, rec);
+  else { rec.id ||= uid(); rec.createdAt ||= Date.now(); db[col].push(rec); }
 }
 
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
@@ -365,8 +374,7 @@ function customerForm(c = {}, after) {
   `, d => {
     const rec = { ...c, name: d.name.trim(), phone: d.phone.trim(), contact: d.contact.trim(), city: d.city.trim(), note: d.note.trim() };
     if (!rec.name) return false;
-    if (c.id) Object.assign(byId(db.customers, c.id), rec);
-    else { rec.id = uid(); rec.createdAt = Date.now(); db.customers.push(rec); }
+    upsert('customers', rec);
     save();
     toast('Покупатель сохранён');
     after?.(rec);
@@ -392,8 +400,7 @@ function gameForm(g = {}) {
   `, d => {
     const rec = { ...g, title: d.title.trim(), platform: d.platform.trim() || 'Другое', condition: d.condition, cost: num(d.cost), price: num(d.price), purchased: Math.max(0, Math.round(num(d.stock))) + sold };
     if (!rec.title) return false;
-    if (g.id) Object.assign(byId(db.games, g.id), rec);
-    else { rec.id = uid(); rec.createdAt = Date.now(); db.games.push(rec); }
+    upsert('games', rec);
     save();
     toast('Игра сохранена');
   });
@@ -448,8 +455,7 @@ function saleForm(s = {}) {
       const available = stockOf(g) + alreadyCounted;
       if (rec.qty > available && !confirm(`На складе только ${available} шт. Всё равно сохранить? Остаток уйдёт в минус.`)) return false;
     }
-    if (s.id) Object.assign(byId(db.sales, s.id), rec);
-    else { rec.id = uid(); rec.createdAt = Date.now(); db.sales.push(rec); }
+    upsert('sales', rec);
     save();
     toast('Продажа сохранена');
   });
@@ -483,8 +489,7 @@ function expenseForm(e = {}) {
   `, d => {
     const rec = { ...e, date: d.date, amount: num(d.amount), category: d.category.trim() || 'Прочее', note: d.note.trim() };
     if (!rec.amount) return false;
-    if (e.id) Object.assign(byId(db.expenses, e.id), rec);
-    else { rec.id = uid(); rec.createdAt = Date.now(); db.expenses.push(rec); }
+    upsert('expenses', rec);
     save();
     toast('Расход сохранён');
   });
@@ -646,7 +651,9 @@ document.getElementById('demo').addEventListener('click', () => {
 });
 
 document.getElementById('wipe').addEventListener('click', () => {
-  if (!confirm('Удалить ВСЕ данные? Сначала лучше скачать резервную копию.')) return;
+  if (!confirm(typeof Cloud !== 'undefined' && Cloud.active
+    ? 'Удалить ВСЕ данные из облака — на всех ваших устройствах? Сначала лучше скачать резервную копию.'
+    : 'Удалить ВСЕ данные? Сначала лучше скачать резервную копию.')) return;
   db = emptyDb();
   save();
   toast('Все данные удалены');

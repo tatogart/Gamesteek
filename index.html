@@ -7,14 +7,18 @@
   <meta name="description" content="База покупателей, игр, продаж и прибыли магазина дисков с играми">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
   <link rel="stylesheet" href="styles.css">
+  <script src="firebase-config.js"></script>
 </head>
 <body>
   <script>
     // Прячем базу до проверки PIN, чтобы она не мелькнула при загрузке
+    // Пока не выполнен вход в Google, база скрыта
+    if (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.apiKey) document.body.classList.add('gated');
     try { if (localStorage.getItem('gamesteek-lock') && sessionStorage.getItem('gamesteek-unlocked') !== '1') document.body.classList.add('locked'); } catch (e) {}
   </script>
   <header class="topbar">
     <div class="brand">💿 <span>Gamesteek</span></div>
+    <span id="sync" class="sync" hidden></span>
     <nav class="tabs" id="tabs">
       <button data-view="dashboard" class="active">Главная</button>
       <button data-view="sales">Продажи</button>
@@ -119,11 +123,17 @@
       <div class="view-head"><h1>Данные</h1></div>
       <div class="card">
         <h2>Где хранятся данные</h2>
-        <p>Все записи сохраняются в этом браузере (localStorage). Если открыть сайт с другого устройства
-          или очистить данные браузера — база будет пустой. Регулярно делайте резервную копию.</p>
+        <p id="storage-text"></p>
         <div class="actions">
           <button class="btn primary" id="backup">Скачать резервную копию (JSON)</button>
           <label class="btn">Загрузить из файла<input type="file" id="restore" accept=".json,application/json" hidden></label>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Общая база через Google</h2>
+        <p id="cloud-status" class="muted"></p>
+        <div class="actions">
+          <button class="btn" id="cloud-logout" hidden>Выйти из аккаунта</button>
         </div>
       </div>
       <div class="card">
@@ -156,7 +166,18 @@
     </form>
   </dialog>
 
-  <div id="lock" hidden>
+  <div id="auth" class="overlay" hidden>
+    <div class="lock-box">
+      <div class="lock-logo">💿</div>
+      <h2>Gamesteek</h2>
+      <p id="auth-text" class="muted"></p>
+      <button class="btn primary" id="auth-login" hidden>Войти через Google</button>
+      <button class="btn" id="auth-logout" hidden>Войти другим аккаунтом</button>
+      <button class="btn" id="auth-retry" hidden>Обновить</button>
+    </div>
+  </div>
+
+  <div id="lock" class="overlay" hidden>
     <form id="lock-form" class="lock-box">
       <div class="lock-logo">💿</div>
       <h2>Gamesteek</h2>
@@ -169,5 +190,6 @@
 
   <div id="toast"></div>
   <script src="app.js"></script>
+  <script src="cloud.js"></script>
 </body>
 </html>
