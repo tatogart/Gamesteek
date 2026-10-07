@@ -6,8 +6,8 @@
   <title>Gamesteek — учёт продаж</title>
   <meta name="description" content="База покупателей, игр, продаж и прибыли магазина дисков, флешек и Steam-гифтов">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
-  <link rel="stylesheet" href="styles.css">
-  <script src="firebase-config.js"></script>
+  <link rel="stylesheet" href="styles.css?v=4">
+  <script src="firebase-config.js?v=4"></script>
 </head>
 <body>
   <script>
@@ -190,7 +190,8 @@
   </div>
 
   <div id="toast"></div>
-  <script src="app.js"></script>
-  <script src="cloud.js"></script>
+  <!-- ?v=N — при каждом обновлении сайта увеличивать, чтобы браузер не брал старые файлы из кэша -->
+  <script src="app.js?v=4"></script>
+  <script src="cloud.js?v=4"></script>
 </body>
 </html>
