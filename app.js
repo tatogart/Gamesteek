@@ -36,11 +36,14 @@ const byId = (list, id) => list.find(x => x.id === id);
 
 /* ================== Справочники ================== */
 
-const PLATFORMS = ['PS5', 'PS4', 'PS3', 'Xbox Series', 'Xbox One', 'Xbox 360', 'Switch', 'PC', 'Другое'];
+const PLATFORMS = ['Steam', 'PS5', 'PS4', 'PS3', 'Xbox Series', 'Xbox One', 'Xbox 360', 'Switch', 'PC', 'Другое'];
 const CONDITIONS = { new: 'Новый', used: 'Б/у' };
-const TYPES = { disc: 'Диск', usb: 'Флешка' };
-const TYPE_ICONS = { disc: '💿', usb: '🔌' };
+const TYPES = { disc: 'Диск', usb: 'Флешка', gift: 'Steam-гифт' };
+const TYPE_ICONS = { disc: '💿', usb: '🔌', gift: '🎁' };
 const typeOf = g => g.type || 'disc'; // старые записи без типа — диски
+// Гифт покупается в Steam под каждый заказ — склада у него нет
+const isDigital = g => typeOf(g) === 'gift';
+const GIFT_REGIONS = ['RU', 'KZ', 'TR', 'UA', 'AR', 'Global'];
 const STATUSES = { paid: 'Оплачено', pending: 'Ожидает оплаты', cancelled: 'Отменено' };
 const PAYMENTS = { cash: 'Наличные', card: 'Карта', transfer: 'Перевод', other: 'Другое' };
 const EXPENSE_CATS = ['Доставка', 'Реклама', 'Упаковка', 'Аренда', 'Комиссия площадки', 'Прочее'];
@@ -55,7 +58,8 @@ function soldQty(gameId) {
   return db.sales.filter(s => s.gameId === gameId && isActive(s)).reduce((a, s) => a + s.qty, 0);
 }
 // Храним «всего закуплено», остаток считаем — так отмена/удаление продажи сами возвращают диск на склад.
-const stockOf = g => (g.purchased || 0) - soldQty(g.id);
+const stockOf = g => isDigital(g) ? Infinity : (g.purchased || 0) - soldQty(g.id);
+const stockText = g => isDigital(g) ? '∞' : String(stockOf(g));
 
 function customerStats(customerId) {
   const sales = db.sales.filter(s => s.customerId === customerId && isActive(s));
@@ -92,7 +96,7 @@ const customerName = id => byId(db.customers, id)?.name || 'Без покупа�
 const gameTitle = (id, plain = false) => {
   const g = byId(db.games, id);
   if (!g) return 'Удалённый товар';
-  const extra = typeOf(g) === 'usb' && g.capacity ? `, ${g.capacity} ГБ` : '';
+  const extra = typeOf(g) === 'usb' && g.capacity ? `, ${g.capacity} ГБ` : isDigital(g) && g.region ? `, ${g.region}` : '';
   return `${plain ? '' : TYPE_ICONS[typeOf(g)] + ' '}${g.title} (${g.platform}${extra})`;
 };
 
@@ -144,7 +148,7 @@ function renderDashboard() {
   const soldOfType = t => sales.filter(s => typeOf(byId(db.games, s.gameId) || {}) === t).reduce((a, s) => a + s.qty, 0);
   const buyers = new Set(sales.map(s => s.customerId).filter(Boolean)).size;
   const debt = db.sales.filter(s => s.status === 'pending' && inRange(s.date, range)).reduce((a, s) => a + saleRevenue(s), 0);
-  const stockValue = db.games.reduce((a, g) => a + Math.max(0, stockOf(g)) * g.cost, 0);
+  const stockValue = db.games.filter(g => !isDigital(g)).reduce((a, g) => a + Math.max(0, stockOf(g)) * g.cost, 0);
 
   const kpis = [
     ['Выручка', money(revenue)],
@@ -152,6 +156,7 @@ function renderDashboard() {
     ['Расходы', money(exp)],
     ['Продано дисков', soldOfType('disc')],
     ['Продано флешек', soldOfType('usb')],
+    ['Продано гифтов', soldOfType('gift')],
     ['Средний чек', money(sales.length ? revenue / sales.length : 0)],
     ['Покупателей', buyers],
     ['Ждём оплату', money(debt)],
@@ -194,7 +199,7 @@ function renderDashboard() {
     : '<div class="empty">Продаж пока нет — нажмите «+ Продажа»</div>';
 
   // Мало на складе
-  const low = db.games.map(g => ({ g, st: stockOf(g) })).filter(x => x.st <= 1).sort((a, b) => a.st - b.st).slice(0, 8);
+  const low = db.games.filter(g => !isDigital(g)).map(g => ({ g, st: stockOf(g) })).filter(x => x.st <= 1).sort((a, b) => a.st - b.st).slice(0, 8);
   document.getElementById('low-stock').innerHTML = low.length
     ? '<ul class="list">' + low.map(({ g, st }) =>
         `<li><span>${TYPE_ICONS[typeOf(g)]} ${esc(g.title)}<div class="sub">${TYPES[typeOf(g)]} · ${esc(g.platform)} · ${CONDITIONS[g.condition]}</div></span><b class="${st <= 0 ? 'neg' : ''}">${st} шт</b></li>`).join('') + '</ul>'
@@ -258,7 +263,7 @@ function renderSales() {
     .sort((a, b) => b.date.localeCompare(a.date) || b.createdAt - a.createdAt);
 
   table(document.getElementById('sales-table'),
-    [{ t: 'Дата' }, { t: 'Покупатель' }, { t: 'Игра' }, { t: 'Кол-во', num: 1 }, { t: 'Цена', num: 1 }, { t: 'Сумма', num: 1 }, { t: 'Прибыль', num: 1 }, { t: 'Оплата' }, { t: 'Статус' }, { t: '' }],
+    [{ t: 'Дата' }, { t: 'Покупатель' }, { t: 'Товар' }, { t: 'Кол-во', num: 1 }, { t: 'Цена', num: 1 }, { t: 'Сумма', num: 1 }, { t: 'Прибыль', num: 1 }, { t: 'Оплата' }, { t: 'Статус' }, { t: '' }],
     list.map(s => `<tr>
       <td>${fmtDate(s.date)}</td>
       <td>${esc(customerName(s.customerId))}</td>
@@ -314,16 +319,16 @@ function renderGames() {
   table(document.getElementById('games-table'),
     [{ t: 'Товар' }, { t: 'Тип' }, { t: 'Платформа' }, { t: 'Состояние' }, { t: 'Закупка', num: 1 }, { t: 'Цена продажи', num: 1 }, { t: 'Наценка', num: 1 }, { t: 'Остаток', num: 1 }, { t: 'Продано', num: 1 }, { t: '' }],
     list.map(g => {
-      const st = stockOf(g), margin = g.price - g.cost;
+      const st = stockOf(g), margin = g.price - g.cost, digital = isDigital(g);
       return `<tr>
         <td class="wrap"><b>${esc(g.title)}</b>${g.contents ? `<div class="sub muted">${esc(g.contents)}</div>` : ''}</td>
-        <td>${TYPE_ICONS[typeOf(g)]} ${TYPES[typeOf(g)]}${typeOf(g) === 'usb' && g.capacity ? ` · ${g.capacity} ГБ` : ''}</td>
+        <td>${TYPE_ICONS[typeOf(g)]} ${TYPES[typeOf(g)]}${typeOf(g) === 'usb' && g.capacity ? ` · ${g.capacity} ГБ` : ''}${digital && g.region ? ` · ${esc(g.region)}` : ''}</td>
         <td>${esc(g.platform)}</td>
-        <td>${CONDITIONS[g.condition]}</td>
+        <td>${digital ? '—' : CONDITIONS[g.condition]}</td>
         <td class="num">${money(g.cost)}</td>
         <td class="num">${money(g.price)}</td>
         <td class="num ${signCls(margin)}">${money(margin)}</td>
-        <td class="num ${st <= 0 ? 'neg' : ''}"><b>${st}</b></td>
+        <td class="num ${st <= 0 ? 'neg' : ''}" ${digital ? 'title="Цифровой товар — без склада"' : ''}><b>${stockText(g)}</b></td>
         <td class="num">${soldQty(g.id)}</td>
         ${rowActions('game', g.id)}
       </tr>`;
@@ -379,10 +384,13 @@ function customerForm(c = {}, after) {
       ${field('Телефон', `<input name="phone" type="tel" value="${esc(c.phone)}">`)}
       ${field('Telegram / VK / Avito', `<input name="contact" value="${esc(c.contact)}" placeholder="@nickname">`)}
     </div>
-    ${field('Город', `<input name="city" value="${esc(c.city)}">`)}
+    <div class="field-row">
+      ${field('Город', `<input name="city" value="${esc(c.city)}">`)}
+      ${field('Steam-профиль', `<input name="steam" value="${esc(c.steam)}" placeholder="ссылка или ник">`)}
+    </div>
     ${field('Заметка', `<textarea name="note" rows="2">${esc(c.note)}</textarea>`)}
   `, d => {
-    const rec = { ...c, name: d.name.trim(), phone: d.phone.trim(), contact: d.contact.trim(), city: d.city.trim(), note: d.note.trim() };
+    const rec = { ...c, name: d.name.trim(), phone: d.phone.trim(), contact: d.contact.trim(), city: d.city.trim(), steam: d.steam.trim(), note: d.note.trim() };
     if (!rec.name) return false;
     upsert('customers', rec);
     save();
@@ -399,24 +407,35 @@ function gameForm(g = {}) {
   openModal(g.id ? 'Товар' : 'Новый товар', `
     ${field('Тип товара', `<select name="type" id="f-type">${opts(Object.fromEntries(Object.entries(TYPES).map(([k, v]) => [k, TYPE_ICONS[k] + ' ' + v])), type)}</select>`)}
     ${field('Название *', `<input name="title" id="f-title" required value="${esc(g.title)}">`)}
+    <div id="f-gift">
+      <div class="field-row">
+        ${field('Регион гифта', `<input name="region" list="region-list" value="${esc(g.region || 'RU')}"><datalist id="region-list">${GIFT_REGIONS.map(r => `<option value="${r}">`).join('')}</datalist>`)}
+        ${field('Ссылка на игру в Steam', `<input name="steamUrl" type="url" value="${esc(g.steamUrl)}" placeholder="https://store.steampowered.com/app/…">`)}
+      </div>
+      <p class="hint">Склад для гифтов не ведётся. Цена закупки — примерная цена в Steam, в каждой продаже её можно поправить.</p>
+    </div>
     <div id="f-usb">
       ${field('Объём флешки, ГБ', `<input name="capacity" type="number" min="0" step="1" value="${g.capacity ?? ''}" placeholder="64">`)}
       ${field('Какие игры записаны', `<textarea name="contents" rows="2" placeholder="GTA V, FIFA 23, Minecraft…">${esc(g.contents)}</textarea>`)}
     </div>
     <div class="field-row">
-      ${field('Платформа', `<input name="platform" list="platform-list" value="${esc(pl)}"><datalist id="platform-list">${PLATFORMS.map(p => `<option value="${p}">`).join('')}</datalist>`)}
-      ${field('Состояние', `<select name="condition">${opts(CONDITIONS, g.condition || 'new')}</select>`)}
+      ${field('Платформа', `<input name="platform" id="f-platform" list="platform-list" value="${esc(pl)}"><datalist id="platform-list">${PLATFORMS.map(p => `<option value="${p}">`).join('')}</datalist>`)}
+      <div id="f-condition">${field('Состояние', `<select name="condition">${opts(CONDITIONS, g.condition || 'new')}</select>`)}</div>
     </div>
     <div class="field-row">
       ${field('Цена закупки, ₽', `<input name="cost" inputmode="decimal" value="${g.cost ?? ''}">`)}
       ${field('Цена продажи, ₽', `<input name="price" inputmode="decimal" value="${g.price ?? ''}">`)}
     </div>
-    ${field('Остаток на складе, шт', `<input name="stock" type="number" min="0" step="1" value="${stock}">`)}
-    ${sold ? `<p class="hint">Уже продано: ${sold} шт. Остаток уменьшается автоматически при продаже.</p>` : ''}
+    <div id="f-stock">
+      ${field('Остаток на складе, шт', `<input name="stock" type="number" min="0" step="1" value="${Number.isFinite(stock) ? stock : 1}">`)}
+      ${sold ? `<p class="hint">Уже продано: ${sold} шт. Остаток уменьшается автоматически при продаже.</p>` : ''}
+    </div>
   `, d => {
-    const usb = d.type === 'usb';
+    const usb = d.type === 'usb', gift = d.type === 'gift';
     const rec = { ...g, type: d.type, capacity: usb ? Math.round(num(d.capacity)) || '' : '', contents: usb ? d.contents.trim() : '',
-      title: d.title.trim(), platform: d.platform.trim() || 'Другое', condition: d.condition, cost: num(d.cost), price: num(d.price), purchased: Math.max(0, Math.round(num(d.stock))) + sold };
+      region: gift ? d.region.trim() : '', steamUrl: gift ? d.steamUrl.trim() : '',
+      title: d.title.trim(), platform: d.platform.trim() || (gift ? 'Steam' : 'Другое'), condition: gift ? 'new' : d.condition, cost: num(d.cost), price: num(d.price),
+      purchased: gift ? 0 : Math.max(0, Math.round(num(d.stock))) + sold };
     if (!rec.title) return false;
     upsert('games', rec);
     save();
@@ -425,9 +444,14 @@ function gameForm(g = {}) {
 
   const typeSel = document.getElementById('f-type');
   const syncType = () => {
-    const usb = typeSel.value === 'usb';
+    const t = typeSel.value, usb = t === 'usb', gift = t === 'gift';
     document.getElementById('f-usb').hidden = !usb;
-    document.getElementById('f-title').placeholder = usb ? 'Например, Флешка 64 ГБ — сборка PS3' : 'Например, Elden Ring';
+    document.getElementById('f-gift').hidden = !gift;
+    document.getElementById('f-stock').hidden = gift;
+    document.getElementById('f-condition').hidden = gift;
+    const pf = document.getElementById('f-platform');
+    if (gift && (!g.id || typeOf(g) !== 'gift') && PLATFORMS.includes(pf.value)) pf.value = 'Steam';
+    document.getElementById('f-title').placeholder = usb ? 'Например, Флешка 64 ГБ — сборка PS3' : gift ? 'Например, Cyberpunk 2077' : 'Например, Elden Ring';
   };
   typeSel.addEventListener('change', syncType);
   syncType();
@@ -435,7 +459,7 @@ function gameForm(g = {}) {
 
 function saleForm(s = {}) {
   if (!db.games.length) {
-    toast('Сначала добавьте диск или флешку на склад');
+    toast('Сначала добавьте товар');
     switchView('games');
     gameForm();
     return;
@@ -443,14 +467,16 @@ function saleForm(s = {}) {
   const games = [...db.games].sort((a, b) => a.title.localeCompare(b.title));
   const customers = [...db.customers].sort((a, b) => a.name.localeCompare(b.name));
   const gameId = s.gameId || games.find(g => stockOf(g) > 0)?.id || games[0].id;
+  const custSteam = id => byId(db.customers, id)?.steam || '';
   const g0 = byId(db.games, gameId);
 
   openModal(s.id ? 'Продажа' : 'Новая продажа', `
     ${field('Товар *', `<select name="gameId" id="f-game">${games.map(g =>
-      `<option value="${g.id}" ${g.id === gameId ? 'selected' : ''}>${TYPE_ICONS[typeOf(g)]} ${esc(g.title)} · ${esc(g.platform)} · ${CONDITIONS[g.condition]} (ост. ${stockOf(g)})</option>`).join('')}</select>`)}
+      `<option value="${g.id}" ${g.id === gameId ? 'selected' : ''}>${TYPE_ICONS[typeOf(g)]} ${esc(g.title)} · ${esc(g.platform)}${isDigital(g) ? (g.region ? ' · ' + esc(g.region) : '') : ` · ${CONDITIONS[g.condition]} (ост. ${stockOf(g)})`}</option>`).join('')}</select>`)}
     ${field('Покупатель', `<select name="customerId" id="f-cust"><option value="">— без покупателя —</option><option value="__new">+ Новый покупатель…</option>${customers.map(c =>
       `<option value="${c.id}" ${c.id === s.customerId ? 'selected' : ''}>${esc(c.name)}${c.phone ? ' · ' + esc(c.phone) : ''}</option>`).join('')}</select>`)}
     <div class="field" id="f-newcust" hidden><label>Имя нового покупателя</label><input name="newCustomer" placeholder="Имя"><input name="newPhone" placeholder="Телефон или @ник" style="margin-top:6px"></div>
+    <div class="field" id="f-steam-wrap"><label>Steam-профиль покупателя (куда отправить гифт)</label><input name="steamProfile" id="f-steam" value="${esc(s.steamProfile ?? custSteam(s.customerId))}" placeholder="https://steamcommunity.com/id/…"></div>
     <div class="field-row">
       ${field('Дата', `<input name="date" type="date" required value="${s.date || today()}">`)}
       ${field('Количество', `<input name="qty" type="number" min="1" step="1" value="${s.qty || 1}">`)}
@@ -471,13 +497,17 @@ function saleForm(s = {}) {
       const name = d.newCustomer.trim();
       if (!name) { toast('Введите имя покупателя'); return false; }
       const phone = d.newPhone.trim();
-      const c = { id: uid(), createdAt: Date.now(), name, phone: phone.startsWith('@') ? '' : phone, contact: phone.startsWith('@') ? phone : '', city: '', note: '' };
+      const c = { id: uid(), createdAt: Date.now(), name, phone: phone.startsWith('@') ? '' : phone, contact: phone.startsWith('@') ? phone : '', city: '', steam: '', note: '' };
       db.customers.push(c);
       customerId = c.id;
     }
-    const rec = { ...s, gameId: d.gameId, customerId, date: d.date, qty: Math.max(1, Math.round(num(d.qty))), price: num(d.price), cost: num(d.cost), payment: d.payment, status: d.status, note: d.note.trim() };
-    if (rec.status !== 'cancelled') {
-      const g = byId(db.games, rec.gameId);
+    const g = byId(db.games, d.gameId);
+    const steamProfile = isDigital(g) ? d.steamProfile.trim() : '';
+    // Запоминаем Steam покупателя, чтобы в следующий раз подставился сам
+    const cust = byId(db.customers, customerId);
+    if (cust && steamProfile && !cust.steam) cust.steam = steamProfile;
+    const rec = { ...s, gameId: d.gameId, customerId, steamProfile, date: d.date, qty: Math.max(1, Math.round(num(d.qty))), price: num(d.price), cost: num(d.cost), payment: d.payment, status: d.status, note: d.note.trim() };
+    if (rec.status !== 'cancelled' && !isDigital(g)) {
       const alreadyCounted = s.id && isActive(s) && s.gameId === rec.gameId ? s.qty : 0;
       const available = stockOf(g) + alreadyCounted;
       if (rec.qty > available && !confirm(`На складе только ${available} шт. Всё равно сохранить? Остаток уйдёт в минус.`)) return false;
@@ -493,13 +523,17 @@ function saleForm(s = {}) {
     const p = qty * (price - cost);
     document.getElementById('f-summary').innerHTML = `Сумма: <b>${money(qty * price)}</b> · Прибыль: <b class="${signCls(p)}">${money(p)}</b>`;
   };
+  const syncSteam = () => { document.getElementById('f-steam-wrap').hidden = !isDigital(byId(db.games, f.gameId.value)); };
   document.getElementById('f-game').addEventListener('change', e => {
     const g = byId(db.games, e.target.value);
-    f.price.value = g.price; f.cost.value = g.cost; summary();
+    f.price.value = g.price; f.cost.value = g.cost; summary(); syncSteam();
   });
+  syncSteam();
   document.getElementById('f-cust').addEventListener('change', e => {
     document.getElementById('f-newcust').hidden = e.target.value !== '__new';
     if (e.target.value === '__new') f.newCustomer.focus();
+    const steam = custSteam(e.target.value);
+    if (steam && !f.steamProfile.value) f.steamProfile.value = steam;
   });
   ['qty', 'price', 'cost'].forEach(n => f[n].addEventListener('input', summary));
   summary();
@@ -579,12 +613,12 @@ function toCsv(rows) {
 }
 
 const CSV = {
-  sales: () => [['Дата', 'Покупатель', 'Товар', 'Тип', 'Кол-во', 'Цена', 'Себестоимость', 'Сумма', 'Прибыль', 'Оплата', 'Статус', 'Комментарий'],
-    ...db.sales.map(s => [s.date, customerName(s.customerId), gameTitle(s.gameId, true), TYPES[typeOf(byId(db.games, s.gameId) || {})], s.qty, s.price, s.cost, saleRevenue(s), saleProfit(s), PAYMENTS[s.payment], STATUSES[s.status], s.note])],
-  customers: () => [['Имя', 'Телефон', 'Контакт', 'Город', 'Покупок', 'Потратил', 'Заметка'],
-    ...db.customers.map(c => { const st = customerStats(c.id); return [c.name, c.phone, c.contact, c.city, st.count, st.spent, c.note]; })],
-  games: () => [['Товар', 'Тип', 'Объём, ГБ', 'Игры на флешке', 'Платформа', 'Состояние', 'Закупка', 'Цена', 'Остаток', 'Продано'],
-    ...db.games.map(g => [g.title, TYPES[typeOf(g)], g.capacity || '', g.contents || '', g.platform, CONDITIONS[g.condition], g.cost, g.price, stockOf(g), soldQty(g.id)])],
+  sales: () => [['Дата', 'Покупатель', 'Товар', 'Тип', 'Кол-во', 'Цена', 'Себестоимость', 'Сумма', 'Прибыль', 'Оплата', 'Статус', 'Steam покупателя', 'Комментарий'],
+    ...db.sales.map(s => [s.date, customerName(s.customerId), gameTitle(s.gameId, true), TYPES[typeOf(byId(db.games, s.gameId) || {})], s.qty, s.price, s.cost, saleRevenue(s), saleProfit(s), PAYMENTS[s.payment], STATUSES[s.status], s.steamProfile || '', s.note])],
+  customers: () => [['Имя', 'Телефон', 'Контакт', 'Город', 'Steam', 'Покупок', 'Потратил', 'Заметка'],
+    ...db.customers.map(c => { const st = customerStats(c.id); return [c.name, c.phone, c.contact, c.city, c.steam || '', st.count, st.spent, c.note]; })],
+  games: () => [['Товар', 'Тип', 'Объём, ГБ', 'Игры на флешке', 'Регион гифта', 'Платформа', 'Состояние', 'Закупка', 'Цена', 'Остаток', 'Продано'],
+    ...db.games.map(g => [g.title, TYPES[typeOf(g)], g.capacity || '', g.contents || '', g.region || '', g.platform, isDigital(g) ? '' : CONDITIONS[g.condition], g.cost, g.price, stockText(g), soldQty(g.id)])],
   expenses: () => [['Дата', 'Категория', 'Сумма', 'Комментарий'], ...db.expenses.map(e => [e.date, e.category, e.amount, e.note])],
 };
 
@@ -598,6 +632,8 @@ function seedDemo() {
   ].map(([title, platform, condition, cost, price, stock]) => ({ id: uid(), createdAt: Date.now(), type: 'disc', title, platform, condition, cost, price, purchased: stock }));
   games.push(
     { id: uid(), createdAt: Date.now(), type: 'usb', title: 'Флешка 64 ГБ — хиты PS3', capacity: 64, contents: 'GTA V, The Last of Us, Uncharted 3, Red Dead Redemption', platform: 'PS3', condition: 'new', cost: 600, price: 1500, purchased: 5 },
+    { id: uid(), createdAt: Date.now(), type: 'gift', title: 'Cyberpunk 2077', region: 'RU', steamUrl: 'https://store.steampowered.com/app/1091500/', platform: 'Steam', condition: 'new', cost: 1500, price: 2200, purchased: 0 },
+    { id: uid(), createdAt: Date.now(), type: 'gift', title: 'Baldur\'s Gate 3', region: 'KZ', steamUrl: 'https://store.steampowered.com/app/1086940/', platform: 'Steam', condition: 'new', cost: 2400, price: 3300, purchased: 0 },
     { id: uid(), createdAt: Date.now(), type: 'usb', title: 'Флешка 128 ГБ — игры для ПК', capacity: 128, contents: 'Minecraft, Terraria, Stardew Valley, Hollow Knight', platform: 'PC', condition: 'new', cost: 900, price: 1900, purchased: 3 },
   );
   const customers = [
