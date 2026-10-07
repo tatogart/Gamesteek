@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gamesteek — учёт продаж</title>
+  <meta name="description" content="База покупателей, игр, продаж и прибыли магазина дисков, флешек и Steam-гифтов">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
+  <link rel="stylesheet" href="styles.css?v=4">
+  <script src="firebase-config.js?v=4"></script>
+</head>
+<body>
+  <script>
+    // Прячем базу до проверки PIN, чтобы она не мелькнула при загрузке
+    // Пока не выполнен вход в Google, база скрыта
+    if (window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.apiKey) document.body.classList.add('gated');
+    try { if (localStorage.getItem('gamesteek-lock') && sessionStorage.getItem('gamesteek-unlocked') !== '1') document.body.classList.add('locked'); } catch (e) {}
+  </script>
+  <header class="topbar">
+    <div class="brand">💿 <span>Gamesteek</span></div>
+    <span id="sync" class="sync" hidden></span>
+    <nav class="tabs" id="tabs">
+      <button data-view="dashboard" class="active">Главная</button>
+      <button data-view="sales">Продажи</button>
+      <button data-view="customers">Покупатели</button>
+      <button data-view="games">Товары</button>
+      <button data-view="expenses">Расходы</button>
+      <button data-view="settings">Данные</button>
+    </nav>
+  </header>
+
+  <main id="app">
+    <!-- ГЛАВНАЯ -->
+    <section class="view active" id="view-dashboard">
+      <div class="view-head">
+        <h1>Главная</h1>
+        <div class="actions">
+          <select id="period">
+            <option value="month">Этот месяц</option>
+            <option value="prevmonth">Прошлый месяц</option>
+            <option value="year">Этот год</option>
+            <option value="all" selected>Всё время</option>
+          </select>
+          <button class="btn primary" data-action="new-sale">+ Продажа</button>
+        </div>
+      </div>
+      <div class="kpis" id="kpis"></div>
+      <div class="card">
+        <h2>Выручка и прибыль по месяцам</h2>
+        <div id="chart" class="chart"></div>
+      </div>
+      <div class="grid2">
+        <div class="card"><h2>Топ игр</h2><div id="top-games"></div></div>
+        <div class="card"><h2>Топ покупателей</h2><div id="top-customers"></div></div>
+      </div>
+      <div class="grid2">
+        <div class="card"><h2>Последние продажи</h2><div id="recent-sales"></div></div>
+        <div class="card"><h2>Заканчиваются на складе</h2><div id="low-stock"></div></div>
+      </div>
+    </section>
+
+    <!-- ПРОДАЖИ -->
+    <section class="view" id="view-sales">
+      <div class="view-head">
+        <h1>Продажи</h1>
+        <div class="actions">
+          <input type="search" id="sales-search" placeholder="Поиск по игре или покупателю">
+          <select id="sales-status">
+            <option value="">Все статусы</option>
+            <option value="paid">Оплачено</option>
+            <option value="pending">Ожидает оплаты</option>
+            <option value="cancelled">Отменено</option>
+          </select>
+          <button class="btn" data-export="sales">CSV</button>
+          <button class="btn primary" data-action="new-sale">+ Продажа</button>
+        </div>
+      </div>
+      <div class="card table-wrap"><table id="sales-table"></table></div>
+    </section>
+
+    <!-- ПОКУПАТЕЛИ -->
+    <section class="view" id="view-customers">
+      <div class="view-head">
+        <h1>Покупатели</h1>
+        <div class="actions">
+          <input type="search" id="customers-search" placeholder="Имя, телефон, ник">
+          <button class="btn" data-export="customers">CSV</button>
+          <button class="btn primary" data-action="new-customer">+ Покупатель</button>
+        </div>
+      </div>
+      <div class="card table-wrap"><table id="customers-table"></table></div>
+    </section>
+
+    <!-- ИГРЫ -->
+    <section class="view" id="view-games">
+      <div class="view-head">
+        <h1>Товары / склад</h1>
+        <div class="actions">
+          <input type="search" id="games-search" placeholder="Название или игра на флешке">
+          <select id="games-type"><option value="">Все товары</option><option value="disc">💿 Диски</option><option value="usb">🔌 Флешки</option><option value="gift">🎁 Steam-гифты</option></select>
+          <select id="games-platform"><option value="">Все платформы</option></select>
+          <button class="btn" data-export="games">CSV</button>
+          <button class="btn primary" data-action="new-game">+ Товар</button>
+        </div>
+      </div>
+      <div class="card table-wrap"><table id="games-table"></table></div>
+    </section>
+
+    <!-- РАСХОДЫ -->
+    <section class="view" id="view-expenses">
+      <div class="view-head">
+        <h1>Расходы</h1>
+        <div class="actions">
+          <button class="btn" data-export="expenses">CSV</button>
+          <button class="btn primary" data-action="new-expense">+ Расход</button>
+        </div>
+      </div>
+      <p class="muted">Доставка, реклама, упаковка и прочее — вычитается из прибыли.</p>
+      <div class="card table-wrap"><table id="expenses-table"></table></div>
+    </section>
+
+    <!-- ДАННЫЕ -->
+    <section class="view" id="view-settings">
+      <div class="view-head"><h1>Данные</h1></div>
+      <div class="card">
+        <h2>Где хранятся данные</h2>
+        <p id="storage-text"></p>
+        <div class="actions">
+          <button class="btn primary" id="backup">Скачать резервную копию (JSON)</button>
+          <label class="btn">Загрузить из файла<input type="file" id="restore" accept=".json,application/json" hidden></label>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Общая база через Google</h2>
+        <p id="cloud-status" class="muted"></p>
+        <div class="actions">
+          <button class="btn" id="cloud-logout" hidden>Выйти из аккаунта</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Вход по PIN-коду</h2>
+        <p id="pin-status" class="muted"></p>
+        <div class="actions">
+          <button class="btn primary" id="pin-set">Установить PIN</button>
+          <button class="btn" id="pin-lock" hidden>Заблокировать сейчас</button>
+          <button class="btn danger" id="pin-remove" hidden>Убрать PIN</button>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Демо и очистка</h2>
+        <div class="actions">
+          <button class="btn" id="demo">Заполнить демо-данными</button>
+          <button class="btn danger" id="wipe">Удалить все данные</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="modal">
+    <form method="dialog" id="modal-form">
+      <h2 id="modal-title"></h2>
+      <div id="modal-body"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn" value="cancel" id="modal-cancel">Отмена</button>
+        <button type="submit" class="btn primary" id="modal-ok">Сохранить</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="auth" class="overlay" hidden>
+    <div class="lock-box">
+      <div class="lock-logo">💿</div>
+      <h2>Gamesteek</h2>
+      <p id="auth-text" class="muted"></p>
+      <button class="btn primary" id="auth-login" hidden>Войти через Google</button>
+      <button class="btn" id="auth-logout" hidden>Войти другим аккаунтом</button>
+      <button class="btn" id="auth-retry" hidden>Обновить</button>
+    </div>
+  </div>
+
+  <div id="lock" class="overlay" hidden>
+    <form id="lock-form" class="lock-box">
+      <div class="lock-logo">💿</div>
+      <h2>Gamesteek</h2>
+      <p class="muted">Введите PIN-код</p>
+      <input id="lock-pin" type="password" inputmode="numeric" autocomplete="current-password" required>
+      <p id="lock-error" class="neg" hidden>Неверный PIN</p>
+      <button class="btn primary" type="submit">Войти</button>
+    </form>
+  </div>
+
+  <div id="toast"></div>
+  <!-- ?v=N — при каждом обновлении сайта увеличивать, чтобы браузер не брал старые файлы из кэша -->
+  <script src="app.js?v=4"></script>
+  <script src="cloud.js?v=4"></script>
+</body>
+</html>
