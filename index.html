@@ -9,6 +9,10 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
+  <script>
+    // Прячем базу до проверки PIN, чтобы она не мелькнула при загрузке
+    try { if (localStorage.getItem('gamesteek-lock') && sessionStorage.getItem('gamesteek-unlocked') !== '1') document.body.classList.add('locked'); } catch (e) {}
+  </script>
   <header class="topbar">
     <div class="brand">💿 <span>Gamesteek</span></div>
     <nav class="tabs" id="tabs">
@@ -123,6 +127,15 @@
         </div>
       </div>
       <div class="card">
+        <h2>Вход по PIN-коду</h2>
+        <p id="pin-status" class="muted"></p>
+        <div class="actions">
+          <button class="btn primary" id="pin-set">Установить PIN</button>
+          <button class="btn" id="pin-lock" hidden>Заблокировать сейчас</button>
+          <button class="btn danger" id="pin-remove" hidden>Убрать PIN</button>
+        </div>
+      </div>
+      <div class="card">
         <h2>Демо и очистка</h2>
         <div class="actions">
           <button class="btn" id="demo">Заполнить демо-данными</button>
@@ -142,6 +155,17 @@
       </div>
     </form>
   </dialog>
+
+  <div id="lock" hidden>
+    <form id="lock-form" class="lock-box">
+      <div class="lock-logo">💿</div>
+      <h2>Gamesteek</h2>
+      <p class="muted">Введите PIN-код</p>
+      <input id="lock-pin" type="password" inputmode="numeric" autocomplete="current-password" required>
+      <p id="lock-error" class="neg" hidden>Неверный PIN</p>
+      <button class="btn primary" type="submit">Войти</button>
+    </form>
+  </div>
 
   <div id="toast"></div>
   <script src="app.js"></script>

@@ -652,7 +652,90 @@ document.getElementById('wipe').addEventListener('click', () => {
   toast('Все данные удалены');
 });
 
+/* ================== PIN-код ================== */
+
+// Хранится только соль и SHA-256 хеш PIN — сам PIN нигде не сохраняется.
+const LOCK_KEY = 'gamesteek-lock';
+const UNLOCK_KEY = 'gamesteek-unlocked';
+
+function getLock() {
+  try { return JSON.parse(localStorage.getItem(LOCK_KEY)); } catch { return null; }
+}
+
+async function hashPin(pin, salt) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(salt + ':' + pin));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function showLock() {
+  document.body.classList.add('locked');
+  document.getElementById('lock').hidden = false;
+  document.getElementById('lock-error').hidden = true;
+  const input = document.getElementById('lock-pin');
+  input.value = '';
+  input.focus();
+}
+
+function renderPinSettings() {
+  const on = !!getLock();
+  document.getElementById('pin-status').textContent = on
+    ? 'PIN установлен. Он спрашивается при каждом новом открытии сайта в этом браузере.'
+    : 'PIN не установлен — любой, кто откроет сайт в этом браузере, увидит базу.';
+  document.getElementById('pin-set').textContent = on ? 'Сменить PIN' : 'Установить PIN';
+  document.getElementById('pin-lock').hidden = !on;
+  document.getElementById('pin-remove').hidden = !on;
+}
+
+document.getElementById('lock-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const lock = getLock();
+  const pin = document.getElementById('lock-pin').value;
+  if (lock && await hashPin(pin, lock.salt) !== lock.hash) {
+    document.getElementById('lock-error').hidden = false;
+    document.getElementById('lock-pin').select();
+    return;
+  }
+  try { sessionStorage.setItem(UNLOCK_KEY, '1'); } catch {}
+  document.getElementById('lock').hidden = true;
+  document.body.classList.remove('locked');
+});
+
+document.getElementById('pin-set').addEventListener('click', () => {
+  openModal(getLock() ? 'Сменить PIN' : 'Установить PIN', `
+    ${field('Новый PIN (минимум 4 символа)', '<input name="pin" type="password" inputmode="numeric" autocomplete="new-password" minlength="4" required>')}
+    ${field('Повторите PIN', '<input name="pin2" type="password" inputmode="numeric" autocomplete="new-password" minlength="4" required>')}
+    <p class="hint">PIN устанавливается отдельно на каждом устройстве. Если забудете — восстановить нельзя, только очистить данные сайта в браузере.</p>
+  `, d => {
+    if (d.pin.length < 4) { toast('PIN слишком короткий'); return false; }
+    if (d.pin !== d.pin2) { toast('PIN-коды не совпадают'); return false; }
+    const salt = uid() + uid();
+    hashPin(d.pin, salt).then(hash => {
+      localStorage.setItem(LOCK_KEY, JSON.stringify({ salt, hash }));
+      try { sessionStorage.setItem(UNLOCK_KEY, '1'); } catch {}
+      renderPinSettings();
+      toast('PIN установлен');
+    });
+  });
+});
+
+document.getElementById('pin-lock').addEventListener('click', () => {
+  try { sessionStorage.removeItem(UNLOCK_KEY); } catch {}
+  showLock();
+});
+
+document.getElementById('pin-remove').addEventListener('click', () => {
+  if (!confirm('Убрать PIN-код?')) return;
+  localStorage.removeItem(LOCK_KEY);
+  renderPinSettings();
+  toast('PIN убран');
+});
+
 // Старт
+renderPinSettings();
+let unlocked = false;
+try { unlocked = sessionStorage.getItem(UNLOCK_KEY) === '1'; } catch {}
+if (getLock() && !unlocked) showLock();
+
 let startView = location.hash.slice(1);
 if (!document.getElementById('view-' + startView)) {
   try { startView = localStorage.getItem('gamesteek-view') || 'dashboard'; } catch { startView = 'dashboard'; }
