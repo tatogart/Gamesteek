@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Gamesteek — учёт продаж</title>
+  <meta name="description" content="База покупателей, игр, продаж и прибыли магазина дисков с играми">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💿</text></svg>">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">💿 <span>Gamesteek</span></div>
+    <nav class="tabs" id="tabs">
+      <button data-view="dashboard" class="active">Главная</button>
+      <button data-view="sales">Продажи</button>
+      <button data-view="customers">Покупатели</button>
+      <button data-view="games">Игры</button>
+      <button data-view="expenses">Расходы</button>
+      <button data-view="settings">Данные</button>
+    </nav>
+  </header>
+
+  <main id="app">
+    <!-- ГЛАВНАЯ -->
+    <section class="view active" id="view-dashboard">
+      <div class="view-head">
+        <h1>Главная</h1>
+        <div class="actions">
+          <select id="period">
+            <option value="month">Этот месяц</option>
+            <option value="prevmonth">Прошлый месяц</option>
+            <option value="year">Этот год</option>
+            <option value="all" selected>Всё время</option>
+          </select>
+          <button class="btn primary" data-action="new-sale">+ Продажа</button>
+        </div>
+      </div>
+      <div class="kpis" id="kpis"></div>
+      <div class="card">
+        <h2>Выручка и прибыль по месяцам</h2>
+        <div id="chart" class="chart"></div>
+      </div>
+      <div class="grid2">
+        <div class="card"><h2>Топ игр</h2><div id="top-games"></div></div>
+        <div class="card"><h2>Топ покупателей</h2><div id="top-customers"></div></div>
+      </div>
+      <div class="grid2">
+        <div class="card"><h2>Последние продажи</h2><div id="recent-sales"></div></div>
+        <div class="card"><h2>Заканчиваются на складе</h2><div id="low-stock"></div></div>
+      </div>
+    </section>
+
+    <!-- ПРОДАЖИ -->
+    <section class="view" id="view-sales">
+      <div class="view-head">
+        <h1>Продажи</h1>
+        <div class="actions">
+          <input type="search" id="sales-search" placeholder="Поиск по игре или покупателю">
+          <select id="sales-status">
+            <option value="">Все статусы</option>
+            <option value="paid">Оплачено</option>
+            <option value="pending">Ожидает оплаты</option>
+            <option value="cancelled">Отменено</option>
+          </select>
+          <button class="btn" data-export="sales">CSV</button>
+          <button class="btn primary" data-action="new-sale">+ Продажа</button>
+        </div>
+      </div>
+      <div class="card table-wrap"><table id="sales-table"></table></div>
+    </section>
+
+    <!-- ПОКУПАТЕЛИ -->
+    <section class="view" id="view-customers">
+      <div class="view-head">
+        <h1>Покупатели</h1>
+        <div class="actions">
+          <input type="search" id="customers-search" placeholder="Имя, телефон, ник">
+          <button class="btn" data-export="customers">CSV</button>
+          <button class="btn primary" data-action="new-customer">+ Покупатель</button>
+        </div>
+      </div>
+      <div class="card table-wrap"><table id="customers-table"></table></div>
+    </section>
+
+    <!-- ИГРЫ -->
+    <section class="view" id="view-games">
+      <div class="view-head">
+        <h1>Игры / склад</h1>
+        <div class="actions">
+          <input type="search" id="games-search" placeholder="Название игры">
+          <select id="games-platform"><option value="">Все платформы</option></select>
+          <button class="btn" data-export="games">CSV</button>
+          <button class="btn primary" data-action="new-game">+ Игра</button>
+        </div>
+      </div>
+      <div class="card table-wrap"><table id="games-table"></table></div>
+    </section>
+
+    <!-- РАСХОДЫ -->
+    <section class="view" id="view-expenses">
+      <div class="view-head">
+        <h1>Расходы</h1>
+        <div class="actions">
+          <button class="btn" data-export="expenses">CSV</button>
+          <button class="btn primary" data-action="new-expense">+ Расход</button>
+        </div>
+      </div>
+      <p class="muted">Доставка, реклама, упаковка и прочее — вычитается из прибыли.</p>
+      <div class="card table-wrap"><table id="expenses-table"></table></div>
+    </section>
+
+    <!-- ДАННЫЕ -->
+    <section class="view" id="view-settings">
+      <div class="view-head"><h1>Данные</h1></div>
+      <div class="card">
+        <h2>Где хранятся данные</h2>
+        <p>Все записи сохраняются в этом браузере (localStorage). Если открыть сайт с другого устройства
+          или очистить данные браузера — база будет пустой. Регулярно делайте резервную копию.</p>
+        <div class="actions">
+          <button class="btn primary" id="backup">Скачать резервную копию (JSON)</button>
+          <label class="btn">Загрузить из файла<input type="file" id="restore" accept=".json,application/json" hidden></label>
+        </div>
+      </div>
+      <div class="card">
+        <h2>Демо и очистка</h2>
+        <div class="actions">
+          <button class="btn" id="demo">Заполнить демо-данными</button>
+          <button class="btn danger" id="wipe">Удалить все данные</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <dialog id="modal">
+    <form method="dialog" id="modal-form">
+      <h2 id="modal-title"></h2>
+      <div id="modal-body"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn" value="cancel" id="modal-cancel">Отмена</button>
+        <button type="submit" class="btn primary" id="modal-ok">Сохранить</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>
